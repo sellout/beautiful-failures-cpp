@@ -1,7 +1,5 @@
-# Direnv
-/.direnv
+/.direnv/
 
 # Nix build
-/outputs
 /result
 /source

@@ -2,19 +2,19 @@
   description = "Ergonomic error handling in C++";
 
   nixConfig = {
-    # https://github.com/NixOS/rfcs/blob/master/rfcs/0045-deprecate-url-syntax.md
+    ## https://github.com/NixOS/rfcs/blob/master/rfcs/0045-deprecate-url-syntax.md
     extra-experimental-features = ["no-url-literals"];
     extra-trusted-public-keys = [
       "cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g="
     ];
     extra-trusted-substituters = ["https://cache.garnix.io"];
-    # Isolate the build.
+    ## Isolate the build.
     registries = false;
     sandbox = true;
   };
 
   outputs = inputs: let
-    pname = "beautiful-failures";
+    pname = "beautiful-failures-cxx";
   in
     {
       overlays.default = final: prev: {};
@@ -22,26 +22,11 @@
       homeConfigurations =
         builtins.listToAttrs
         (builtins.map
-          (system: {
-            name = "${system}-example";
-            value = inputs.home-manager.lib.homeManagerConfiguration {
-              pkgs = import inputs.nixpkgs {
-                inherit system;
-                overlays = [inputs.self.overlays.default];
-              };
-
-              modules = [
-                {
-                  # These attributes are simply required by home-manager.
-                  home = {
-                    homeDirectory = /tmp/${pname}-example;
-                    stateVersion = "23.05";
-                    username = "${pname}-example-user";
-                  };
-                }
-              ];
-            };
-          })
+          (system:
+            inputs.flaky.lib.homeConfigurations.example pname inputs.self [
+              inputs.self.packages.${system}.${pname}
+            ]
+          )
           inputs.flake-utils.lib.defaultSystems);
 
       lib = {};
@@ -54,6 +39,11 @@
       ## TODO: This _should_ be done with an overlay, but I can’t seem to avoid
       ##       getting infinite recursion with it.
       stdenv = pkgs.llvmPackages_16.stdenv;
+
+      format = inputs.flaky.lib.format pkgs {
+        ## C/C++/Java/JavaScript/Objective-C/Protobuf/C# formatter
+        programs.clang-format.enable = true;
+      };
     in {
       packages = {
         default = inputs.self.packages.${system}.${pname};
@@ -75,71 +65,33 @@
       };
 
       devShells.default =
-        inputs.bash-strict-mode.lib.checkedDrv pkgs
-        (pkgs.mkShell.override {inherit stdenv;} {
-          inputsFrom =
-            builtins.attrValues inputs.self.checks.${system}
-            ++ builtins.attrValues inputs.self.packages.${system};
-
-          nativeBuildInputs = [
-            # https://github.com/rizsotto/Bear
-            pkgs.bear
-            # Nix language server,
-            # https://github.com/oxalica/nil#readme
-            pkgs.nil
-            # Bash language server,
-            # https://github.com/bash-lsp/bash-language-server#readme
-            pkgs.nodePackages.bash-language-server
-          ];
-        });
+        inputs.flaky.lib.devShells.default pkgs inputs.self [
+          # https://github.com/rizsotto/Bear
+          pkgs.bear
+        ]
+        "";
 
       checks = {
-        clang-format =
-          inputs.bash-strict-mode.lib.checkedDrv pkgs
-          (stdenv.mkDerivation {
-            inherit src;
-
-            name = "clang-format";
-
-            buildPhase = ''
-              runHook preBuild
-              shopt -s globstar
-              clang-format --Werror --dry-run **/*.h **/*.cpp
-              runHook postBuild
-            '';
-
-            installPhase = ''
-              runHook preInstall
-              mkdir -p "$out"
-              runHook preInstall
-            '';
-          });
-
-        nix-fmt =
-          inputs.bash-strict-mode.lib.checkedDrv pkgs
-          (stdenv.mkDerivation {
-            inherit src;
-
-            name = "nix fmt";
-
-            nativeBuildInputs = [inputs.self.formatter.${system}];
-
-            buildPhase = ''
-              runHook preBuild
-              alejandra --check .
-              runHook postBuild
-            '';
-
-            installPhase = ''
-              runHook preInstall
-              mkdir -p "$out"
-              runHook preInstall
-            '';
-          });
+        ## TODO: This doesn’t quite work yet.
+        c-lint =
+          inputs.flaky.lib.checks.simple
+          pkgs
+          src
+          "clang-tidy"
+          [pkgs.llvmPackages_16.clang]
+          ''
+            ## TODO: Can we keep the compile-commands.json from the original
+            ##       build? E.g., send it to a separate output, which we depend
+            ##       on from this check. We also want it for clangd in the
+            ##       devShell.
+            make clean && bear -- make
+            find "$src" \( -name '*.c' -o -name '*.cpp' -o -name '*.h' \) \
+              -exec clang-tidy {} +
+          '';
+        format = format.check inputs.self;
       };
 
-      # Nix code formatter, https://github.com/kamadorueda/alejandra#readme
-      formatter = pkgs.alejandra;
+      formatter = format.wrapper;
     });
 
   inputs = {
@@ -150,10 +102,7 @@
 
     flake-utils.url = "github:numtide/flake-utils";
 
-    home-manager = {
-      inputs.nixpkgs.follows = "nixpkgs";
-      url = "github:nix-community/home-manager/release-23.05";
-    };
+    flaky.url = "github:sellout/flaky";
 
     nixpkgs.url = "github:NixOS/nixpkgs/release-23.05";
   };

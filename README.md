@@ -1,5 +1,7 @@
 # Beautiful Failures (for C++)
 
+Ergonomic error handling in C++
+
 An ergonomic API for handling software failures.
 
 ## usage
@@ -8,27 +10,26 @@ It is common for failure types to grow as they move up the call stack, and `std:
 
 In particular, `variant_cast` can be used to cast a variant to another variant that contains at least all the types in the original variant.
 
-## building
-
 ## building & development
 
 Especially if you are unfamiliar with the C++ ecosystem, there is a Nix flake build.
 
 ### if you have `nix` installed
 
-`nix build` will build and test the project fully.
+`nix build` will build the project and run tests.
+
+`nix flake check` will validate the state of the repo – formatting, linting, etc.
 
 `nix develop` will put you into an environment where the traditional build tooling works. If you also have `direnv` installed, then you should automatically be in that environment when you're in a directory in this project.
 
 ### traditional build
 
-This is a standard GNU Autotools build:
-```
+This project can be built with GNU Autotools
+```bash
 autoreconf
 ./configure
 make
 ```
-will do the usual things.
 
 ## versioning
 
