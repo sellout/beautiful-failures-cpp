@@ -140,7 +140,7 @@ namespace failures {
       tl::expected<T, failure<E>> const &first,
       tl::expected<T, failure<E>> const &second);
 
-    /// Lixe `first_success`, but the second argument can’t fail, so we always
+    /// Like `first_success`, but the second argument can’t fail, so we always
     /// have a successful return, just perhaps with some warnings.
     template<class T, class E>
     std::pair<T, std::optional<failure<E>>> default_if_failure(

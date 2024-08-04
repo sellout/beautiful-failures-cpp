@@ -2,10 +2,9 @@
   project:
     {
       description: "An ergonomic API for handling software failures.",
-      name: "beautiful-failures-cxx",
+      name: "beautiful-failures",
       repo: "sellout/beautiful-failures-cxx",
       summary: "Ergonomic error handling in C++",
-      version: "0.1.0",
     },
   type: { name: "c" },
 }

@@ -1,0 +1,9 @@
+direnv
+garnix
+[Nn]ix
+Pfeil
+ShellCheck
+Autotools
+GNU
+implicator
+superset
