@@ -4,55 +4,76 @@
   nixConfig = {
     ## https://github.com/NixOS/rfcs/blob/master/rfcs/0045-deprecate-url-syntax.md
     extra-experimental-features = ["no-url-literals"];
+    extra-substituters = ["https://cache.garnix.io"];
     extra-trusted-public-keys = [
       "cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g="
     ];
-    extra-trusted-substituters = ["https://cache.garnix.io"];
     ## Isolate the build.
     registries = false;
-    sandbox = true;
+    sandbox = "relaxed";
   };
 
-  outputs = inputs: let
-    pname = "beautiful-failures-cxx";
+  outputs = {
+    bash-strict-mode,
+    flake-utils,
+    flaky,
+    nixpkgs,
+    self,
+  }: let
+    pname = "beautiful-failures";
+
+    supportedSystems = flaky.lib.defaultSystems;
   in
     {
-      overlays.default = final: prev: {};
+      schemas = {
+        inherit
+          (flaky.schemas)
+          overlays
+          homeConfigurations
+          packages
+          devShells
+          projectConfigurations
+          checks
+          formatter
+          ;
+      };
+
+      overlays.default = final: prev: {
+        "${pname}" = self.packages.${final.system}.${pname};
+      };
 
       homeConfigurations =
         builtins.listToAttrs
         (builtins.map
-          (system:
-            inputs.flaky.lib.homeConfigurations.example pname inputs.self [
-              inputs.self.packages.${system}.${pname}
-            ]
-          )
-          inputs.flake-utils.lib.defaultSystems);
+          (flaky.lib.homeConfigurations.example self
+            [({pkgs, ...}: {home.packages = [pkgs.${pname}];})])
+          supportedSystems);
 
       lib = {};
     }
-    // inputs.flake-utils.lib.eachDefaultSystem (system: let
-      pkgs = import inputs.nixpkgs {inherit system;};
+    // flake-utils.lib.eachSystem supportedSystems (system: let
+      pkgs = import nixpkgs {
+        inherit system;
+        overlays = [flaky.overlays.dependencies];
+      };
+
+      ## NB: This isn’t done in `pkgs` because we don’t want to rebuild the
+      ##     world.
+      clangPkgs = import nixpkgs {
+        inherit system;
+        config.replaceStdenv = {pkgs, ...}: pkgs.llvmPackages.stdenv;
+      };
 
       src = pkgs.lib.cleanSource ./.;
-
-      ## TODO: This _should_ be done with an overlay, but I can’t seem to avoid
-      ##       getting infinite recursion with it.
-      stdenv = pkgs.llvmPackages_16.stdenv;
-
-      format = inputs.flaky.lib.format pkgs {
-        ## C/C++/Java/JavaScript/Objective-C/Protobuf/C# formatter
-        programs.clang-format.enable = true;
-      };
     in {
       packages = {
-        default = inputs.self.packages.${system}.${pname};
+        default = self.packages.${system}.${pname};
 
         "${pname}" =
-          ## TODO: Doesn’t use `strict-bash` because `libtoolize` has some bad
-          ##       behavior.
-          inputs.bash-strict-mode.lib.shellchecked pkgs
-          (stdenv.mkDerivation {
+          ## NB: This doesn’t use `checkdDrv` because of issues with libtoolize.
+          ##    (“libtoolize: line 2775: debug_mode: unbound variable”).
+          bash-strict-mode.lib.shellchecked pkgs
+          (clangPkgs.stdenv.mkDerivation {
             inherit pname src;
 
             buildInputs = [
@@ -64,46 +85,43 @@
           });
       };
 
-      devShells.default =
-        inputs.flaky.lib.devShells.default pkgs inputs.self [
-          # https://github.com/rizsotto/Bear
-          pkgs.bear
-        ]
-        "";
+      projectConfigurations =
+        flaky.lib.projectConfigurations.default {inherit pkgs self;};
 
-      checks = {
-        ## TODO: This doesn’t quite work yet.
-        c-lint =
-          inputs.flaky.lib.checks.simple
-          pkgs
-          src
-          "clang-tidy"
-          [pkgs.llvmPackages_16.clang]
-          ''
-            ## TODO: Can we keep the compile-commands.json from the original
-            ##       build? E.g., send it to a separate output, which we depend
-            ##       on from this check. We also want it for clangd in the
-            ##       devShell.
-            make clean && bear -- make
-            find "$src" \( -name '*.c' -o -name '*.cpp' -o -name '*.h' \) \
-              -exec clang-tidy {} +
-          '';
-        format = format.check inputs.self;
-      };
+      devShells =
+        self.projectConfigurations.${system}.devShells
+        // {default = flaky.lib.devShells.default system self [] "";};
 
-      formatter = format.wrapper;
+      checks =
+        self.projectConfigurations.${system}.checks
+        // {
+          ## TODO: This doesn’t quite work yet.
+          # c-lint =
+          #   flaky.lib.checks.simple
+          #   pkgs
+          #   src
+          #   "clang-tidy"
+          #   [pkgs.llvmPackages.clang]
+          #   ''
+          #     ## TODO: Can we keep the compile-commands.json from the original
+          #     ##       build? E.g., send it to a separate output, which we
+          #     ##       depend on from this check. We also want it for clangd in
+          #     ##       the devShell.
+          #     make clean && bear -- make
+          #     find "$src" \( -name '*.c' -o -name '*.cpp' -o -name '*.h' \) \
+          #       -exec clang-tidy {} +
+          #   '';
+        };
+
+      formatter = self.projectConfigurations.${system}.formatter;
     });
 
   inputs = {
-    bash-strict-mode = {
-      inputs.nixpkgs.follows = "nixpkgs";
-      url = "github:sellout/bash-strict-mode";
-    };
-
-    flake-utils.url = "github:numtide/flake-utils";
-
+    ## Flaky should generally be the source of truth for its inputs.
     flaky.url = "github:sellout/flaky";
 
-    nixpkgs.url = "github:NixOS/nixpkgs/release-24.05";
+    bash-strict-mode.follows = "flaky/bash-strict-mode";
+    flake-utils.follows = "flaky/flake-utils";
+    nixpkgs.follows = "flaky/nixpkgs";
   };
 }
